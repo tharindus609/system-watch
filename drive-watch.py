@@ -6,11 +6,20 @@ import prometheus_client as prom_c
 
 
 metrics_port = 9104
-read_inerval = 3600 # in seconds
+read_inerval = 1800 # in seconds
 
 m_smart_status = prom_c.Enum("drive_smart_status", "status of SMART check", ['device'], states=["PASS", "FAIL"])
-m_drive_info = prom_c.Info("drive_info", "drive model, serial, capacity(B)", ['device'])
+m_drive_info = prom_c.Info("drive", "drive model, serial, capacity(B), type", ['device'])
 m_temprature = prom_c.Gauge("drive_temprature", "drive temprature in C", ['device'])
+
+m_read_error_rate = prom_c.Gauge("drive_smart_read_error_rate", "smart attribute ID: 1", ['device'])
+m_spin_up_time = prom_c.Gauge("drive_smart_spin_up_time", "smart attribute ID: 3", ['device'])
+m_realloc_sec_count = prom_c.Gauge("drive_smart_reallocated_sector_count", "smart attribute ID: 5", ['device'])
+m_pwr_on_hrs = prom_c.Gauge("drive_smart_power_on_hours", "smart attribute ID: 9", ['device'])
+m_spin_retry_count = prom_c.Gauge("drive_smart_spin_retry_count", "smart attribute ID: 10", ['device'])
+m_ralloc_evnt_count = prom_c.Gauge("drive_smart_reallocated_event_count", "smart attribute ID: 196", ['device'])
+m_cur_pnd_sec = prom_c.Gauge("drive_smart_current_pending_sector", "smart attribute ID: 197", ['device'])
+m_offline_uncorrectable = prom_c.Gauge("drive_smart_offline_uncorrectable", "smart attirubte ID: 198", ['device'])
 
 
 def convert_to_terabytes(byte_value):
@@ -44,7 +53,8 @@ def read_smart_data():
         m_drive_info.labels(device['name']).info({
             "model":smart_data['model_name'],
             "serial":smart_data['serial_number'],
-            "capacity":str(smart_data['user_capacity']['bytes'])})
+            "capacity":str(smart_data['user_capacity']['bytes']),
+            "type":"HDD" if smart_data['rotation_rate'] else "SSD"})
         
         # read drive temp
         print("Device temperature: {0} C".format(smart_data['temperature']['current']))
@@ -56,15 +66,31 @@ def read_smart_data():
 
         print("Reading SMART data")
         for attribute in smart_data['ata_smart_attributes']['table']:
-            if attribute['id'] == 3: # Spin_Up_Time
-                attribute['raw']['value'] = "{0} ms".format(round(attribute['raw']['value']/1000,2))
-            # elif attribute['id'] in (241, 242): # Total_LBAs_Written/Read
-            #     attribute['raw']['value'] = "{0}".format(round((attribute['raw']['value']*512)/1024**3,2))
+            if attribute['id'] == 1:
+                m_read_error_rate.labels(device['name']).set(attribute['raw']['value'])
+            elif attribute['id'] == 3:
+                m_spin_up_time.labels(device['name']).set(attribute['raw']['value'])
+            elif attribute['id'] == 5:
+                m_realloc_sec_count.labels(device['name']).set(attribute['raw']['value'])
+            elif attribute['id'] == 9:
+                m_pwr_on_hrs.labels(device['name']).set(attribute['raw']['value'])
+            elif attribute['id'] == 10:
+                m_spin_retry_count.labels(device['name']).set(attribute['raw']['value'])
+            elif attribute['id'] == 196:
+                m_ralloc_evnt_count.labels(device['name']).set(attribute['raw']['value'])
+            elif attribute['id'] == 197:
+                m_cur_pnd_sec.labels(device['name']).set(attribute['raw']['value'])
+            elif attribute['id'] == 198:
+                m_offline_uncorrectable.labels(device['name']).set(attribute['raw']['value'])
             
-            if attribute['id'] in (1,2,5,):
+            if attribute['id'] == 3: # Spin_Up_Time
+                attribute['raw']['value'] = "{0}".format(round(attribute['raw']['value']/1000,2))
+            
+            if attribute['thresh'] != 0:
                 print("ID {0} {1}: {2}/{3}".format(attribute['id'], attribute['name'], attribute['raw']['value'], attribute['thresh']))
             else:
                 print("ID {0} {1}: {2}".format(attribute['id'], attribute['name'], attribute['raw']['value']))
+
         print("---")
 
 
