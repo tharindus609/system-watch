@@ -1,3 +1,2 @@
 humanfriendly==10.0
 prometheus-client==0.16.0
-pySMART==1.2.3
